@@ -1,9 +1,9 @@
-import studios.vanish.engine.Window;
-
 import java.awt.Font;
 import java.awt.Graphics2D;
+import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 
+import studios.vanish.engine.Window;
 import studios.vanish.engine.Button;
 import studios.vanish.engine.Color;
 import studios.vanish.engine.GraphicsUnit;
@@ -17,17 +17,18 @@ public class Program
     private Window wnd = new Window("Fractals", new Size(900 + 330, 700), true);
     private int panelSize = 330;
     private Button[] knobs = new Button[10];
-    private int[] knobVals = new int[] {  +2,  +80,   +0, +110, +200, +200, +100, +100,    +0,    +0};
-    private int[] knobMin  = new int[] {  +1, +100,   +0,   +0,   +0,   +0, -200, -200,  +800,  +600};
+    private int[] knobVals = new int[] {  +5,  +80, +100, +110, +200, +200, +100, +100,  +150,  +150};
+    private int[] knobMin  = new int[] {  +1, +100,   +0,   +0,   +0,   +0, -200, -200,  +200,  +200};
     private int[] knobMax  = new int[] {+500, +600, +360, +100, +100, +100, +200, +200, +2000, +2000};
     private int[] knobPrint = new int[10];
     private boolean k8md = false;
     private boolean k9md = false;
     private boolean md = false;
     private int first = 0;
-    private BufferedImage[] swapchain = new BufferedImage[2];
+    private volatile BufferedImage[] swapchain = new BufferedImage[2];
     private Size content = new Size();
-    private Size resolution = new Size(800, 600);
+    private volatile int resolutionWidth = 1550;
+    private volatile int resolutionHeight = 1550;
     private volatile boolean THREAD_01_WORKING = false;
     private volatile boolean THREAD_02_WORKING = false;
     private volatile boolean THREAD_03_WORKING = false;
@@ -41,6 +42,8 @@ public class Program
     private volatile long THREAD_03_TIME = 0;
     private volatile long THREAD_04_TIME = 0;
     private volatile long THREAD_00_TIME = 0;
+    private volatile boolean[] enabledRegions = new boolean[] {true, true, true, true};
+    private Button[] regionsbtn = new Button[4];
     public static void main(String[] args)
     {
         new Program();
@@ -60,6 +63,7 @@ public class Program
         wnd.OnPaint.Add(this, "Render");
         wnd.OnResize.Add(this, "Resize");
         wnd.OnMouseUp.Add(this, "MouseUp");
+        wnd.OnShow.Add(this, "Show");
         wnd.Initialize(FPS);
         wnd.Show();
         // Initialize GUI Elements
@@ -70,44 +74,46 @@ public class Program
             knobs[i].Size = new Size(10, 20);
         }
         content = wnd.Size.subtract(new Size(panelSize, 0));
-        resolution = new Size(800, 600);
         // Initialize Fractal
         RenderFractal();
+        
+        regionsbtn[0] = new Button(wnd, "Region 01", new Point(0, 0), new Size(130, 25));
     }
     public void RefreshSize(Point MousePosition, int Button)
     {
-        swapchain[0] = new BufferedImage(resolution.Width, resolution.Height, BufferedImage.TYPE_INT_RGB);
+        swapchain[0] = new BufferedImage(resolutionWidth, resolutionHeight, BufferedImage.TYPE_INT_RGB);
         THREAD_01_RENDERER = swapchain[0].createGraphics();
         THREAD_02_RENDERER = swapchain[0].createGraphics();
         THREAD_03_RENDERER = swapchain[0].createGraphics();
         THREAD_04_RENDERER = swapchain[0].createGraphics();
+        RenderFractal();
         md = true;
     }
     public void Resize(Size oldSize, Size newSize)
     {
-        swapchain[0] = new BufferedImage(resolution.Width, resolution.Height, BufferedImage.TYPE_INT_RGB);
+        swapchain[0] = new BufferedImage(resolutionWidth, resolutionHeight, BufferedImage.TYPE_INT_RGB);
         THREAD_01_RENDERER = swapchain[0].createGraphics();
         THREAD_02_RENDERER = swapchain[0].createGraphics();
         THREAD_03_RENDERER = swapchain[0].createGraphics();
         THREAD_04_RENDERER = swapchain[0].createGraphics();
+        RenderFractal();
         md = true;
     }
     public void MouseUp(Point MousePosition, int Button)
     {
         if (k8md || k9md)
         {
-            RefreshSize(new Point(), 0);
             k8md = false;
             k9md = false;
-            md = true;
+            RefreshSize(new Point(), 0);
         }
     }
     public void Update()
     {
-        long startTime = System.currentTimeMillis();    
-        md = false;
+        long startTime = System.currentTimeMillis();
         content = wnd.Size.subtract(new Size(panelSize, 0));
-        resolution = new Size(knobPrint[8], knobPrint[9]);
+        resolutionWidth = knobPrint[8];
+        resolutionHeight = knobPrint[9];
         for (int i = 0; i < knobs.length; i++)
         {
             if (knobs[i].GetState() == 2)
@@ -142,25 +148,41 @@ public class Program
             int newVal = (int)(knobVals[i] * knobRange / 200);
             knobPrint[i] = newVal + knobMin[i];
         }
-        if ((md || first < 10) && !THREAD_01_WORKING && !THREAD_02_WORKING && !THREAD_03_WORKING && !THREAD_04_WORKING)
+        if ((md || first < 3) && !THREAD_01_WORKING && !THREAD_02_WORKING && !THREAD_03_WORKING && !THREAD_04_WORKING)
         {
             first++;
             RenderFractal();
+            md = false;
         }
         long endTime = System.currentTimeMillis();  
         THREAD_00_TIME = (endTime - startTime);
     }
     public BufferedImage RenderFractalRegion(int xStart, int xEnd, int yStart, int yEnd)
     {
-        BufferedImage _return = new BufferedImage(xEnd - xStart, yEnd - yStart, BufferedImage.TYPE_INT_RGB);
-        double zoom = knobPrint[0] / 10.0;
+        if (resolutionWidth == 0 || resolutionHeight == 0)
+        {
+            resolutionWidth = content.Width;
+            resolutionHeight = content.Height;
+        }
+        int w = xEnd - xStart;
+        if (w <= 0)
+        {
+            w = 1;
+        }
+        int h = yEnd - yStart;
+        if (h <= 0)
+        {
+            h = 1;
+        }
+        BufferedImage _return = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
+        double zoom = knobPrint[0] / 50.0;
         int iterations = knobPrint[1];
         for (int j = yStart; j < yEnd; j++)
         {
             for (int i = xStart; i < xEnd; i++)
             {
-                double x = ((double)resolution.Width / (double)resolution.Height) * (i - resolution.Width / 2) / (0.5 * zoom * resolution.Width);
-                double y = (j - resolution.Height / 2) / (0.5 * zoom * resolution.Height);
+                double x = ((double)resolutionWidth / (double)resolutionHeight) * (i - resolutionWidth / 2) / (0.5 * zoom * resolutionWidth);
+                double y = (j - resolutionHeight / 2) / (0.5 * zoom * resolutionHeight);
                 float counter = iterations;
                 while (x * x + y * y < 6 && counter > 0)
                 {
@@ -185,67 +207,66 @@ public class Program
     }
     public void RenderFractal()
     {
-        if (resolution.Width == 0)
-        {
-            resolution.Width = content.Width;
-            resolution.Height = content.Height;
-        }
         if (swapchain[0] != null)
         {
             swapchain[1] = swapchain[0];
         }
-        Thread t1 = new Thread(new Runnable()
-        {            
-            public void run()
+        else
+        {
+            swapchain[0] = new BufferedImage(resolutionWidth, resolutionHeight, BufferedImage.TYPE_INT_RGB);
+        }
+        Thread t1 = new Thread(() ->
+        {
+            if (enabledRegions[0])
             {
                 long startTime = System.currentTimeMillis();
                 THREAD_01_WORKING = true;
-                BufferedImage q1 = RenderFractalRegion(0, resolution.Width / 2, 0, resolution.Height / 2);       
+                BufferedImage q1 = RenderFractalRegion(0, resolutionWidth / 2, 0, resolutionHeight / 2);       
                 THREAD_01_RENDERER.drawImage(q1, 0, 0, null);   
                 THREAD_01_WORKING = false;    
                 long endTime = System.currentTimeMillis();  
                 THREAD_01_TIME = (endTime - startTime);
             }
-        });
-        Thread t2 = new Thread(new Runnable()
-        {            
-            public void run()
+        }, "t1");
+        Thread t2 = new Thread(() ->
+        {
+            if (enabledRegions[1])
             {
                 long startTime = System.currentTimeMillis();
                 THREAD_02_WORKING = true;
-                BufferedImage q2 = RenderFractalRegion(resolution.Width / 2, resolution.Width, 0, resolution.Height / 2);    
-                THREAD_02_RENDERER.drawImage(q2, resolution.Width / 2, 0, null);
+                BufferedImage q2 = RenderFractalRegion(resolutionWidth / 2, resolutionWidth, 0, resolutionHeight / 2);    
+                THREAD_02_RENDERER.drawImage(q2, resolutionWidth / 2, 0, null);
                 THREAD_02_WORKING = false;   
                 long endTime = System.currentTimeMillis();  
                 THREAD_02_TIME = (endTime - startTime);   
             }
-        });
-        Thread t3 = new Thread(new Runnable()
-        {            
-            public void run()
+        }, "t2");
+        Thread t3 = new Thread(() ->
+        {
+            if (enabledRegions[2])
             {
                 long startTime = System.currentTimeMillis();
                 THREAD_03_WORKING = true;
-                BufferedImage q3 = RenderFractalRegion(0, resolution.Width / 2, resolution.Height / 2, resolution.Height);
-                THREAD_03_RENDERER.drawImage(q3, 0, resolution.Height / 2, null);  
+                BufferedImage q3 = RenderFractalRegion(0, resolutionWidth / 2, resolutionHeight / 2, resolutionHeight);
+                THREAD_03_RENDERER.drawImage(q3, 0, resolutionHeight / 2, null);  
                 THREAD_03_WORKING = false;    
                 long endTime = System.currentTimeMillis();  
                 THREAD_03_TIME = (endTime - startTime);
             }
-        });
-        Thread t4 = new Thread(new Runnable()
-        {            
-            public void run()
+        }, "t3");
+        Thread t4 = new Thread(() -> 
+        {
+            if (enabledRegions[3])
             {
                 long startTime = System.currentTimeMillis();
                 THREAD_04_WORKING = true;
-                BufferedImage q4 = RenderFractalRegion(resolution.Width / 2, resolution.Width, resolution.Height / 2, resolution.Height);
-                THREAD_04_RENDERER.drawImage(q4, resolution.Width / 2, resolution.Height / 2, null);   
+                BufferedImage q4 = RenderFractalRegion(resolutionWidth / 2, resolutionWidth, resolutionHeight / 2, resolutionHeight);
+                THREAD_04_RENDERER.drawImage(q4, resolutionWidth / 2, resolutionHeight / 2, null);   
                 THREAD_04_WORKING = false;   
                 long endTime = System.currentTimeMillis();  
                 THREAD_04_TIME = (endTime - startTime);
             }
-        });  
+        }, "t4");  
         t1.start();
         t2.start();
         t3.start();
@@ -253,10 +274,27 @@ public class Program
     }
     public void Render(GraphicsUnit Graphics)
     {
+        if (!THREAD_01_WORKING && !THREAD_02_WORKING && !THREAD_03_WORKING && !THREAD_04_WORKING)
+        {
+            if (swapchain[0] != null)
+            {
+                swapchain[1] = swapchain[0];
+            }
+        }
         // Clear
         Graphics.FillRectangle(Color.WhiteSmoke, new Point(0, 0), wnd.Size);
         // Fractal
-        Graphics.graphics.drawImage(swapchain[1], 0, 0, null);
+        BufferedImage image = new BufferedImage(content.Width, content.Height, BufferedImage.TYPE_INT_RGB);
+        Graphics2D iG = image.createGraphics();
+        AffineTransform at = new AffineTransform();
+        double angle = knobPrint[2] * Math.PI / 180;
+        at.translate((content.Width / 2) - (resolutionWidth / 2), (content.Height / 2) - (resolutionHeight / 2));
+        at.rotate(angle, resolutionWidth / 2, resolutionHeight / 2);
+        iG.setColor(new java.awt.Color(Color.WhiteSmoke.R, Color.WhiteSmoke.G, Color.WhiteSmoke.B));
+        iG.fillRect(0, 0, content.Width, content.Height);
+        iG.drawImage(swapchain[1], at, null);
+        //iG.drawRenderedImage(image, at);
+        Graphics.graphics.drawImage(image, 0, 0, null);
         // Layout
         Graphics.FillRectangle(Color.Snow, new Point(wnd.Size.Width - panelSize, 0), new Size(panelSize, wnd.Size.Height));
         int y = 10;
@@ -271,17 +309,24 @@ public class Program
         y = DrawItem(Graphics, "Hue", y, 3);
         y = DrawItem(Graphics, "Saturation", y, 4);
         y = DrawItem(Graphics, "Brightness", y, 5);
-        y = DrawHeader(Graphics, "Fractal Equation (a + bi)", y);
+        y = DrawHeader(Graphics, "Equations", y);
+        y = DrawItem(Graphics, "Expression", y);
         y = DrawItem(Graphics, "a", y, 6);
         y = DrawItem(Graphics, "b", y, 7);
+        y = DrawHeader(Graphics, "Rendering", y);
+        y = DrawItem(Graphics, "Regions", y);       
+        y = DrawItem(Graphics, "", y);       
+        y = DrawItem(Graphics, "AA", y);
+        y = DrawItem(Graphics, "Dithering", y);
+        y = DrawHeader(Graphics, "Output", y);     
         // Debugging Statistics
         Graphics.DrawString(content.toString(), Color.Black, content.subtract(Graphics.GetTextSize(content.toString(), new Font("Consolas", Font.PLAIN, 12))).toPoint().subtract(new Point(10, 5)), new Font("Consolas", Font.PLAIN, 12));
         Graphics.DrawString("T0~ME: " + wnd.FPS + "fps", Color.Black, new Point(0, 0), new Font("Consolas", Font.PLAIN, 12));
         Graphics.DrawString("T0~UI: " + THREAD_00_TIME + "ms", Color.Black, new Point(0, 15), new Font("Consolas", Font.PLAIN, 12));
-        Graphics.DrawString("T1~Q1: " + THREAD_01_TIME + "ms, " + THREAD_01_WORKING, Color.Black, new Point(0, 30), new Font("Consolas", Font.PLAIN, 12));
-        Graphics.DrawString("T2~Q2: " + THREAD_02_TIME + "ms, " + THREAD_02_WORKING, Color.Black, new Point(0, 45), new Font("Consolas", Font.PLAIN, 12));
-        Graphics.DrawString("T3~Q3: " + THREAD_03_TIME + "ms, " + THREAD_03_WORKING, Color.Black, new Point(0, 60), new Font("Consolas", Font.PLAIN, 12));
-        Graphics.DrawString("T4~Q4: " + THREAD_04_TIME + "ms, " + THREAD_04_WORKING, Color.Black, new Point(0, 75), new Font("Consolas", Font.PLAIN, 12));
+        Graphics.DrawString("T1~TL: " + THREAD_01_TIME + "ms, " + THREAD_01_WORKING, Color.Black, new Point(0, 30), new Font("Consolas", Font.PLAIN, 12));
+        Graphics.DrawString("T2~TR: " + THREAD_02_TIME + "ms, " + THREAD_02_WORKING, Color.Black, new Point(0, 45), new Font("Consolas", Font.PLAIN, 12));
+        Graphics.DrawString("T3~BL: " + THREAD_03_TIME + "ms, " + THREAD_03_WORKING, Color.Black, new Point(0, 60), new Font("Consolas", Font.PLAIN, 12));
+        Graphics.DrawString("T4~BR: " + THREAD_04_TIME + "ms, " + THREAD_04_WORKING, Color.Black, new Point(0, 75), new Font("Consolas", Font.PLAIN, 12));
     }
     public int DrawHeader(GraphicsUnit Graphics, String text, int y)
     {
@@ -296,6 +341,12 @@ public class Program
         knobs[knob].Location = new Point(wnd.Size.Width - (panelSize * 3 / 4) + knobVals[knob], y);
         knobs[knob].Render(Graphics);
         Graphics.DrawString("" + knobPrint[knob], Color.Gray, new Point(wnd.Size.Width - (panelSize * 3 / 4) + 215, y), new Font("Century Gothic", Font.PLAIN, 12));
+        return y + 25;
+    }
+    public int DrawItem(GraphicsUnit Graphics, String text, int y)
+    {
+        Font fnt = new Font("Century Gothic", Font.PLAIN, 12);
+        Graphics.DrawString(text, Color.Gray, new Point(wnd.Size.Width - (panelSize * 3 / 4) - Graphics.GetTextSize(text, fnt).Width - 10, y), fnt);
         return y + 25;
     }
 }
