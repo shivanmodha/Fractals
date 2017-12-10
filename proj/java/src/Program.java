@@ -1,3 +1,15 @@
+/**
+ * 
+ * Java Fractal Viewer
+ * 
+ * @author Shivan Modha
+ * @version 2.1
+ * 
+ * (van|sh) stud10s 2017
+ */
+/**
+ * Java Swing Dependencies
+ */
 import java.awt.Font;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
@@ -5,36 +17,41 @@ import java.awt.geom.AffineTransform;
 import java.awt.image.BufferedImage;
 import java.awt.image.RescaleOp;
 import java.io.File;
-
 import javax.imageio.ImageIO;
 import javax.swing.JFileChooser;
-
+import javax.swing.UIManager;
+import javax.swing.UIManager.LookAndFeelInfo;
+/**
+ * Matrix Engine Dependencies
+ * @version 1.0.1
+ */
 import studios.vanish.engine.Window;
 import studios.vanish.engine.Button;
 import studios.vanish.engine.Color;
 import studios.vanish.engine.GraphicsUnit;
 import studios.vanish.engine.Point;
+import studios.vanish.engine.Rectangle;
 import studios.vanish.engine.Size;
 public class Program
 {
     /**
-     * Variables
+     * GUI Interface
      */
-    private Window wnd = new Window("Fractals", new Size(900 + 330, 700), true);
+    private Window wnd;
     private int panelSize = 330;
     private Button[] knobs = new Button[13];
-    private int[] knobVals = new int[] {  +5,  +80, +100, +110, +200, +200, +100, +100,  +150,  +150, +105, +105, 100};
+    private int[] knobVals = new int[] {  +5,  +80, +100, +110, +200, +200, +100, +100,   +50,   +50, +105, +105, 100};
     private int[] knobMin  = new int[] {  +1, +100,   +0,   +0,   +0,   +0, -200, -200,  +200,  +200,  -20,  -20,   0};
-    private int[] knobMax  = new int[] {+500, +600, +360, +100, +100, +100, +200, +200, +2000, +2000,  +20,  +20, 100};
+    private int[] knobMax  = new int[] {+500, +600, +360, +100, +100, +100, +200, +200, +5000, +5000,  +20,  +20, 100};
     private int[] knobPrint = new int[13];
     private boolean k8md = false;
     private boolean k9md = false;
     private boolean md = false;
     private int first = 0;
-    private volatile BufferedImage[] swapchain = new BufferedImage[2];
     private Size content = new Size();
-    private volatile int resolutionWidth = 1550;
-    private volatile int resolutionHeight = 1550;
+    private volatile BufferedImage[] swapchain = new BufferedImage[2];
+    private volatile int resolutionWidth = 1400;
+    private volatile int resolutionHeight = 1400;
     private volatile boolean THREAD_01_WORKING = false;
     private volatile boolean THREAD_02_WORKING = false;
     private volatile boolean THREAD_03_WORKING = false;
@@ -51,17 +68,35 @@ public class Program
     private volatile long THREAD_00_TIME = 0;
     private volatile boolean[] enabledRegions = new boolean[] {true, true, true, true};
     private Button[] regionsbtn = new Button[4];
-    private volatile boolean[] enabledPP = new boolean[] {false, false};
+    private boolean[] enabledPP = new boolean[] {false, false};
     private Button[] ppbtn = new Button[2];
     private Button[] savebtn = new Button[2];
-    private volatile BufferedImage fractalImage;
+    private BufferedImage fractalImage;
     private Thread pp;
+    private Point StartMousePosition;
+    private volatile Point fractalOffset = new Point(0, 0);
     public static void main(String[] args)
     {
+        try
+        {
+            for (LookAndFeelInfo info : UIManager.getInstalledLookAndFeels())
+            {
+                if ("Nimbus".equals(info.getName()))
+                {
+                    UIManager.setLookAndFeel(info.getClassName());
+                    break;
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            
+        }
         new Program();
     }
     public Program()
     {
+        wnd = new Window("Fractals", new Size(900 + 330, 700), true);
         Initialize(60);
         while (true)
         {
@@ -74,10 +109,11 @@ public class Program
         // Initialize Window
         wnd.OnPaint.Add(this, "Render");
         wnd.OnResize.Add(this, "Resize");
+        wnd.OnMouseDown.Add(this, "MouseDown");
         wnd.OnMouseUp.Add(this, "MouseUp");
-        wnd.OnShow.Add(this, "Show");
+        wnd.OnMouseWheel.Add(this, "Wheel");
+        wnd.OnMouseDrag.Add(this, "MouseDrag");
         wnd.Initialize(FPS);
-        wnd.Show();
         // Initialize GUI Elements
         for (int i = 0; i < knobs.length; i++)
         {
@@ -124,8 +160,7 @@ public class Program
                     }
                 }
                 BufferedImage image = new BufferedImage(content.Width, content.Height, BufferedImage.TYPE_INT_RGB);
-                Graphics2D iG = image.createGraphics();
-                
+                Graphics2D iG = image.createGraphics();                
                 if (enabledPP[0])
                 {
                     iG.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -141,26 +176,57 @@ public class Program
                 else
                 {
                     iG.setRenderingHint(RenderingHints.KEY_DITHERING, RenderingHints.VALUE_DITHER_DISABLE);                    
-                }
-                
+                }                
                 AffineTransform at = new AffineTransform();
                 double angle = knobPrint[2] * Math.PI / 180;
                 at.translate((content.Width / 2) - (resolutionWidth / 2), (content.Height / 2) - (resolutionHeight / 2));
+                at.translate(fractalOffset.X, fractalOffset.Y);
                 at.rotate(angle, resolutionWidth / 2, resolutionHeight / 2);
                 iG.setColor(new java.awt.Color(Color.WhiteSmoke.R, Color.WhiteSmoke.G, Color.WhiteSmoke.B));
                 iG.fillRect(0, 0, content.Width, content.Height);
-                iG.drawImage(swapchain[1], at, null);
-                
+                iG.drawImage(swapchain[1], at, null);                
                 float factor = knobPrint[12] / 50.0f;                
                 RescaleOp contrastFilter = new RescaleOp(factor, 0.0f, null);
-                image = contrastFilter.filter(image, null);
-                
+                image = contrastFilter.filter(image, null);                
                 fractalImage = image;
                 long endTime = System.currentTimeMillis();  
                 THREAD_05_TIME = (endTime - startTime);
             }
         }, "PP");
-        pp.start();
+        pp.start();        
+        wnd.Show();
+    }
+    public void Wheel(int amount)
+    {
+        Point ml = wnd.GetMousePosition().subtract(wnd.Location);
+        Rectangle rect = new Rectangle(Color.Black, new Point(0, 30), content);
+        if (rect.Intersects(ml))
+        {
+            knobVals[0] -= amount;
+            int knobRange = knobMax[0] - knobMin[0];
+            int newVal = (int)(knobVals[0] * knobRange / 200);
+            knobPrint[0] = newVal + knobMin[0];
+            if (knobPrint[0] > knobMax[0])
+            {
+                knobVals[0] = 200;
+            }
+            else if (knobPrint[0] < knobMin[0])
+            {
+                knobVals[0] = 0;
+            }
+            RenderFractal();
+        }
+    }
+    public void MouseDrag(Point MouseLocation, int Button)
+    {
+        Point ml = wnd.GetMousePosition().subtract(wnd.Location);
+        Rectangle rect = new Rectangle(Color.Black, new Point(0, 30), content);
+        if (rect.Intersects(ml))
+        {
+            Point delta = StartMousePosition.subtract(MouseLocation);
+            fractalOffset = fractalOffset.subtract(delta);
+            StartMousePosition = MouseLocation;
+        }
     }
     public void SaveBTN(Button sender, Point MouseLocation, int MouseButton)
     {
@@ -195,7 +261,6 @@ public class Program
                     Graphics2D iG = image.createGraphics();
                     AffineTransform at = new AffineTransform();
                     double angle = knobPrint[2] * Math.PI / 180;
-                    //at.translate((content.Width / 2) - (resolutionWidth / 2), (content.Height / 2) - (resolutionHeight / 2));
                     at.rotate(angle, resolutionWidth / 2, resolutionHeight / 2);
                     iG.drawImage(swapchain[1], at, null);                    
                     float factor = knobPrint[12] / 50.0f;                
@@ -271,6 +336,10 @@ public class Program
         THREAD_04_RENDERER = swapchain[0].createGraphics();
         RenderFractal();
         md = true;
+    }
+    public void MouseDown(Point MousePosition, int Button)
+    {
+        StartMousePosition = MousePosition;
     }
     public void MouseUp(Point MousePosition, int Button)
     {
